@@ -31,9 +31,15 @@ typedef struct {
   u32 fuzzs;                  /* Total number of fuzzs (i.e., inputs generated) */
   u32 score;                  /* current score of the state */
   u32 selected_seed_index;    /* the recently selected seed index */
-  void **seeds;               /* keeps all seeds reaching this state -- can be casted to struct queue_entry* */
+  void **seeds;               /* keeps all seeds reaching this state -- can be ca sted to struct queue_entry* */
   u32 seeds_count;            /* total number of seeds, it must be equal the size of the seeds array */
 } state_info_t;
+
+typedef struct {
+  u32 id;
+  u32 score;                  /* current score of this op */
+  u32 times;                  /* total number of this op called */
+} havoc_op_info_t;
 
 enum {
   /* 00 */ PRO_TCP,

@@ -453,7 +453,7 @@ region_t* extract_requests_rtsp(unsigned char* buf, unsigned int buf_size, unsig
   unsigned int cur_end = 0;
   while (byte_count < buf_size) {
 
-    memcpy(&mem[mem_count], buf + byte_count++, 1);
+    memcpy(&mem[mem_count], buf + byte_count++, 1);   // each time copy one byte
 
     //Check if the last four bytes are 0x0D0A0D0A
     if ((mem_count > 3) && (memcmp(&mem[mem_count - 3], terminator, 4) == 0)) {
