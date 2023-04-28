@@ -404,11 +404,6 @@ u8 state_selection_algo = ROUND_ROBIN, seed_selection_algo = RANDOM_SELECTION;
 u8 false_negative_reduction = 0;
 u8 state_trans_fuzzing = 0;     // leehung
 
-/* leehung: havoc op*/
-u32 havoc_ops_count = 0;        /* number of havoc ops */
-havoc_op_info_t* havoc_ops;
-u32 cur_havoc_op_id;
-
 /* Implemented state machine */
 Agraph_t  *ipsm;
 static FILE* ipsm_dot_file;
@@ -1163,7 +1158,7 @@ void record_transbit(unsigned int *state_sequence, unsigned int state_count) {
 
     trans_bits[pre_state_id ^ state_sequence[i]]++; // current state is state_sequence[i]
 
-    pre_state_id = state_sequence[i] * 10 - 1;   // this should be optimized later
+    pre_state_id = state_sequence[i] / 2;   // this should be optimized later
 
   }
 
@@ -5646,8 +5641,6 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   //Update fuzz count, no matter whether the generated test is interesting or not
   if (state_aware_mode) update_fuzzs();
 
-
-
   if (stop_soon) return 1;
 
   if (fault == FAULT_TMOUT) {
@@ -7186,13 +7179,6 @@ havoc_stage:
 
   havoc_queued = queued_paths;
 
-  // leehung
-  u32* Op_scores = NULL;
-  Op_scores = (u32*)ck_alloc(havoc_ops_count * sizeof(u32));
-  if (!Op_scores) PFATAL("Cannot allocate memory for Op_scores");
-
-  
-
   /* We essentially just do several thousand runs (depending on perf_score)
      where we take the input file and make random stacked tweaks. */
 
@@ -7204,9 +7190,7 @@ havoc_stage:
 
     for (i = 0; i < use_stacking; i++) {
 
-      cur_havoc_op_id = UR(15 + 2 + (region_level_mutation ? 4 : 0));
-
-      switch (cur_havoc_op_id) {
+      switch (UR(15 + 2 + (region_level_mutation ? 4 : 0))) {
 
         case 0:
 
@@ -9434,14 +9418,6 @@ int main(int argc, char** argv) {
     sleep(4);
     start_time += 4000;
     if (stop_soon) goto stop_fuzzing;
-  }
-
-  // leehung init havoc struct
-  u32 havoc_ops_count = 15 + 2 + (region_level_mutation ? 4 : 0);
-  havoc_ops = ck_alloc(havoc_ops_count * sizeof(havoc_op_info_t));
-  for (int i = 0; i < havoc_ops_count; i++) {
-    havoc_ops[i].id = i;
-    havoc_ops[i].score = 0;
   }
 
   if (state_aware_mode) {
