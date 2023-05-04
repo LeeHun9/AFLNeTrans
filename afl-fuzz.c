@@ -9185,7 +9185,7 @@ int main(int argc, char** argv) {
 
         if (skip_deterministic) FATAL("Multiple -d options not supported");
         skip_deterministic = 1;
-        use_splicing = 1;
+        use_splicing = 0;
         break;
 
       case 'B': /* load bitmap */
@@ -9367,10 +9367,12 @@ int main(int argc, char** argv) {
 
     }
 
-  if (!bandit_log_path) {
-    bandit_log_path = (char *) malloc(strlen(out_dir) + strlen("/bandit-info.log") + 10);
-    sprintf(bandit_log_path, "%s%s", out_dir, "/bandit-info.log");
-  }
+  char* Bandit_Debug = getenv("BANDIT_DEBUG");
+  if (Bandit_Debug != NULL && atoi(Bandit_Debug) == 1)
+    if (!bandit_log_path) {
+      bandit_log_path = (char *) malloc(strlen(out_dir) + strlen("/bandit-info.log") + 10);
+      sprintf(bandit_log_path, "%s%s", out_dir, "/bandit-info.log");
+    }
 
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
 
