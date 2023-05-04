@@ -9185,7 +9185,7 @@ int main(int argc, char** argv) {
 
         if (skip_deterministic) FATAL("Multiple -d options not supported");
         skip_deterministic = 1;
-        use_splicing = 0;
+        use_splicing = 1;
         break;
 
       case 'B': /* load bitmap */
