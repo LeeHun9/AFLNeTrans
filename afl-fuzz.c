@@ -237,8 +237,14 @@ static u64 total_trans_size;
 
 static s32 cpu_core_count;            /* CPU core count                   */
 
+/* leehung added */
 static u32 total_trans_edge = 0;
 static u32 unique_trans_edge = 0;
+
+static u8* stats_log_path = NULL;
+FILE* fp_stats = NULL;
+s32 pre_time = 0;
+
 
 #ifdef HAVE_AFFINITY
 
@@ -5399,13 +5405,24 @@ static void show_stats(void) {
 
   } else SAYF("\n");
 
-  /* Show transition information during fuzzing*/
+  /*leehung: Show transition information during fuzzing*/
   if(state_trans_fuzzing)
   {
     SAYF("total num of transition is : %d\n", total_trans_edge);
     SAYF("unique num of transition is : %d\n", unique_trans_edge);
   }
-    
+
+  /*leehung: Record stats to file each 3 seconds*/
+  const int period = 3;
+  int rec = 0;
+  u64 _delta = cur_ms - start_time;
+  s32 _second = (_delta / 1000) % 60;
+  if (_second % period == 0 && pre_time != _second) {
+    fprintf(fp_stats, "%llu,%-21s,%-5s,%0.02f%%,%s\n", cur_ms - start_time, DI(total_execs), DI(queued_paths), t_byte_ratio,DI(unique_crashes));
+    pre_time = _second;
+    rec = 1;
+  }
+
 
   /* Show debugging stats for AFLNet only when AFLNET_DEBUG environment variable is set */
   if (getenv("AFLNET_DEBUG") && (atoi(getenv("AFLNET_DEBUG")) == 1) && state_aware_mode) {
@@ -9297,6 +9314,15 @@ int main(int argc, char** argv) {
         usage(argv[0]);
 
     }
+
+  /*leehung: 记录fuzzing状态文件，*/
+  stats_log_path = alloc_printf("%s/stats_record.csv", out_dir);
+  fp_stats = fopen(stats_log_path, "w");
+  if (fp_stats == NULL) {
+    FATAL("Failed to open stats_record.csv");
+  }
+  // write head to csv
+  fprintf(fp_stats, "run time,total execs,total paths,map density,unique crashes\n");
 
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
 
