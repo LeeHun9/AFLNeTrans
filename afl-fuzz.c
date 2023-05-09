@@ -233,14 +233,16 @@ static u64 total_cal_us,              /* Total calibration time (us)      */
 static u64 total_bitmap_size,         /* Total bit count for all bitmaps  */
            total_bitmap_entries;      /* Number of bitmaps counted        */
 
-static u64 total_trans_size;
+static u64 total_uniq_trans_size;          /* sum of queues' uniq_trans */
+static u64 total_trans_size;          /* sum of queues' uniq_trans */
 
 static s32 cpu_core_count;            /* CPU core count                   */
 
-/* leehung added */
+/* leehung added: for show_stat*/
 static u32 total_trans_edge = 0;
 static u32 unique_trans_edge = 0;
 
+// for writting csv file
 static u8* stats_log_path = NULL;
 FILE* fp_stats = NULL;
 s32 pre_time = 0;
@@ -268,7 +270,7 @@ struct queue_entry {
       favored,                        /* Currently favored?               */
       fs_redundant;                   /* Marked as redundant in the fs?   */
 
-  u8  has_new_tr;                     /* leehung: Trigger new trans edge? */
+  u8  has_new_ts;                     /* leehung: Trigger new trans edge? */
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
       exec_cksum;                     /* Checksum of the execution trace  */
@@ -291,6 +293,7 @@ struct queue_entry {
   u32 unique_state_count;             /* Unique number of states traversed by this queue entry */
 
   u32 uniq_trans;                     /* Unique number of state transition traversed by this entry */
+  u32 trans;
 };
 
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
@@ -299,6 +302,7 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
                           *q_prev100; /* Previous 100 marker              */
 
 static struct queue_entry** top_rated;/* Top entries for bitmap bytes     */
+static struct queue_entry** trans_top_rated;
 
 struct extra_data {
   u8* data;                           /* Dictionary token data            */
@@ -431,7 +435,7 @@ region_t* (*extract_requests)(unsigned char* buf, unsigned int buf_size, unsigne
 
 // leehung functions
 //void DEBUG (char const *fmt, ...);
-static u8 has_new_trans(u8* virgin_trans_map, int* trans_num);
+static u8 has_new_trans(u8* virgin_trans_map, int* uniq_trans_num, int* trans_num);
 static void record_transbit(unsigned int *state_sequence, unsigned int state_count);
 
 /* Initialize the implemented state machine as a graphviz graph */
@@ -587,7 +591,9 @@ u8* choose_source_region(u32 *out_len) {
   return out;
 }
 
-/* Update #fuzzs visiting a specific state */
+/* Update #fuzzs visiting a specific state 
+Leehung: A good place to add state trans record here
+*/
 void update_fuzzs() {
   unsigned int state_count, i, discard;
   unsigned int *state_sequence = (*extract_response_codes)(response_buf, response_buf_size, &state_count);
@@ -600,12 +606,12 @@ void update_fuzzs() {
   for(i = 0; i < state_count; i++) {
     unsigned int state_id = state_sequence[i];
 
-    if (kh_get(hs32, khs_state_ids, state_id) != kh_end(khs_state_ids)) {
+    if (kh_get(hs32, khs_state_ids, state_id) != kh_end(khs_state_ids)) { // has same state_id
       continue;
-    } else {
+    } else {    // new new state_id, put it in khs_state_ids
       kh_put(hs32, khs_state_ids, state_id, &discard);
-      k = kh_get(hms, khms_states, state_id);
-      if (k != kh_end(khms_states)) {
+      k = kh_get(hms, khms_states, state_id);   // find it in khms_states
+      if (k != kh_end(khms_states)) {           // if this state in khms_states, state->fuzzs++
         kh_val(khms_states, k)->fuzzs++;
       }
     }
@@ -834,6 +840,9 @@ void update_state_aware_variables(struct queue_entry *q, u8 dry_run)
           newState_From->selected_seed_index = 0;
           newState_From->seeds = NULL;
           newState_From->seeds_count = 0;
+          // leehung
+          newState_From->khms_states_trans = kh_init(hs32);
+          newState_From->trans_num = 0;
 
           k = kh_put(hms, khms_states, prevStateID, &discard);
           kh_value(khms_states, k) = newState_From;
@@ -864,6 +873,9 @@ void update_state_aware_variables(struct queue_entry *q, u8 dry_run)
           newState_To->selected_seed_index = 0;
           newState_To->seeds = NULL;
           newState_To->seeds_count = 0;
+          // leehung
+          newState_To->khms_states_trans = kh_init(hs32);
+          newState_To->trans_num = 0;
 
           k = kh_put(hms, khms_states, curStateID, &discard);
           kh_value(khms_states, k) = newState_To;
@@ -957,7 +969,10 @@ void update_state_aware_variables(struct queue_entry *q, u8 dry_run)
         newState->seeds = (void **) ck_realloc (newState->seeds, sizeof(void *));
         newState->seeds[0] = (void *)q;
         newState->seeds_count = 1;
-
+        // leehung
+        newState->khms_states_trans = kh_init(hs32);
+        newState->trans_num = 0;
+        
         k = kh_put(hms, khms_states, reachable_state_id, &discard);
         kh_value(khms_states, k) = newState;
 
@@ -1154,20 +1169,45 @@ void record_transbit(unsigned int *state_sequence, unsigned int state_count) {
   memset(trans_bits, 0, TRANS_MAP_SIZE);
 
   unsigned int pre_state_id = 0;
+  unsigned int state_id = 0;
+  unsigned int next_state_id = 0;
 
-  if (state_count == 1) 
-    trans_bits[pre_state_id ^ state_sequence[0]]++;
-
+  // state_sequence[0] always be 0, state_count=1 represent no trans, we do nothing
+  if (state_count == 1) {
+    //trans_bits[pre_state_id + state_sequence[0]]++;
+    return;
+  }
+    
   int i;
   
-  for (i = 0; i < state_count; i++) {
-
-    trans_bits[pre_state_id ^ state_sequence[i]]++; // current state is state_sequence[i]
-
-    pre_state_id = state_sequence[i] / 2;   // this should be optimized later
-
+  /* update trans_bits */
+  for (i = 1; i < state_count; i++) {
+  
+    trans_bits[pre_state_id + state_sequence[i]]++; // current state is state_sequence[i]
+    pre_state_id = state_sequence[i] * 8;   // this should be optimized later
   }
 
+  /* update state->trans info */
+  for (i = 0; i < state_count - 1; i++) {
+    
+    state_id = state_sequence[i];
+    next_state_id = state_sequence[i+1];
+  
+    khint_t k;
+    state_info_t *cur_state;
+    unsigned int discard;
+
+    k = kh_get(hms, khms_states, state_id);
+    if (k != kh_end(khms_states)) {
+      cur_state = kh_val(khms_states, k);
+      if (kh_get(hs32, cur_state->khms_states_trans, next_state_id) != kh_end(cur_state->khms_states_trans)) {
+        continue;
+      } else {
+        kh_put(hs32, cur_state->khms_states_trans, next_state_id, &discard);
+        cur_state->trans_num++;    
+      }
+    } else continue;
+  }
 }
 
 /* End of AFLNet-specific variables & functions */
@@ -1638,6 +1678,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->is_initial_seed = 0;
   q->unique_state_count = 0;
   q->uniq_trans = 0;
+  q->trans = 0;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1770,14 +1811,16 @@ EXP_ST void read_bitmap(u8* fname) {
 // 1: found repeat transition
 // 2: found new transition
 
-static u8 has_new_trans(u8* virgin_trans_map, int* trans_num) {
+static u8 has_new_trans(u8* virgin_trans_map, int* uniq_trans_num, int* trans_num) {
 
   int ret = 0;
   int tmp = 0;
+  int tmp2 = 0;
 
   for (int i = 0; i < TRANS_MAP_SIZE; i++) {
     if (unlikely(trans_bits[i])) {
       tmp++;
+      tmp2 += trans_bits[i];
 
       if (!virgin_trans_map[i]) {
         virgin_trans_map[i] = trans_bits[i];
@@ -1793,7 +1836,8 @@ static u8 has_new_trans(u8* virgin_trans_map, int* trans_num) {
       total_trans_edge += trans_bits[i];
     }
   }
-  *trans_num = tmp;
+  *uniq_trans_num = tmp;
+  *trans_num = tmp2;
 
   return ret;
 }
@@ -2193,18 +2237,20 @@ static void update_bitmap_score(struct queue_entry* q) {
 
        if (top_rated[i]) {
 
-         /* check uniq_trans first */
-         if (state_trans_fuzzing) {
-          if (q->uniq_trans < top_rated[i]->uniq_trans) continue;
-         }
+         
 
          /* AFLNet check unique state count first */
 
          if (q->unique_state_count < top_rated[i]->unique_state_count) continue;
 
+         /* check uniq_trans */
+         if (state_trans_fuzzing) {
+          if (q->uniq_trans < top_rated[i]->uniq_trans) continue;
+         }
+
          /* Faster-executing or smaller test cases are favored. */
 
-         if ((q->unique_state_count < top_rated[i]->unique_state_count) && (fav_factor > top_rated[i]->exec_us * top_rated[i]->len)) continue;
+         if ((q->uniq_trans < top_rated[i]->uniq_trans) && (q->unique_state_count < top_rated[i]->unique_state_count) && (fav_factor > top_rated[i]->exec_us * top_rated[i]->len)) continue;
 
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
@@ -2281,7 +2327,9 @@ static void cull_queue(void) {
 
       //if (!top_rated[i]->was_fuzzed) pending_favored++;
       /* AFLNet takes into account more information to make this decision */
-      if ((top_rated[i]->generating_state_id == target_state_id || top_rated[i]->is_initial_seed) && (was_fuzzed_map[get_state_index(target_state_id)][top_rated[i]->index] == 0)) pending_favored++;
+      if ((top_rated[i]->generating_state_id == target_state_id || top_rated[i]->is_initial_seed) && \
+          (was_fuzzed_map[get_state_index(target_state_id)][top_rated[i]->index] == 0)) 
+        pending_favored++;
 
     }
 
@@ -3597,7 +3645,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   total_bitmap_size += q->bitmap_size;
   total_bitmap_entries++;
 
-  total_trans_size += q->uniq_trans;
+  total_uniq_trans_size += q->uniq_trans;
+  total_trans_size += q->trans;
 
   update_bitmap_score(q);
 
@@ -3720,16 +3769,18 @@ static void perform_dry_run(char** argv) {
 
           unsigned int state_count;
           u8 hnt = 0;
+          u32 uts = 0;
           u32 ts = 0;
 
           if (!response_buf_size || !response_bytes) break;
           
           unsigned int *state_sequence = (*extract_response_codes)(response_buf, response_buf_size, &state_count);
           record_transbit(state_sequence, state_count);
-          hnt = has_new_trans(virgin_trans_bits, &ts);
+          hnt = has_new_trans(virgin_trans_bits, &uts, &ts);
           
-          if (hnt) q->has_new_tr = 1;
-          q->uniq_trans = ts;
+          if (hnt) q->has_new_ts = 1;
+          q->uniq_trans = uts;
+          q->trans = ts;
           
           //Free state sequence
           if (state_sequence) ck_free(state_sequence);
@@ -4118,6 +4169,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   u8  hnt = 0;
   u32 ts = 0;
+  u32 uts = 0;
   //s32 fd;
   u8  keeping = 0, res;
 
@@ -4127,6 +4179,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
        future fuzzing, etc. */
     hnb = has_new_bits(virgin_bits);
 
+    // enable state trans mode 
     if (state_trans_fuzzing) {
 
       unsigned int state_count;
@@ -4135,7 +4188,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (response_buf_size && response_bytes) {
         unsigned int *state_sequence = (*extract_response_codes)(response_buf, response_buf_size, &state_count);
         record_transbit(state_sequence, state_count);
-        hnt = has_new_trans(virgin_trans_bits, &ts);
+        hnt = has_new_trans(virgin_trans_bits, &uts, &ts);
 
         //Free state sequence
         if (state_sequence) ck_free(state_sequence);
@@ -4172,7 +4225,8 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     if (state_aware_mode) update_state_aware_variables(queue_top, 0);
 
-    queue_top->uniq_trans = ts;
+    queue_top->uniq_trans = uts;
+    queue_top->trans = ts;
 
     /* save the seed to file for replaying */
     u8 *fn_replay = alloc_printf("%s/replayable-queue/%s", out_dir, basename(queue_top->fname));
@@ -5743,7 +5797,7 @@ static u32 calculate_score(struct queue_entry* q) {
 
   u32 avg_exec_us = total_cal_us / total_cal_cycles;
   u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries;
-  u32 avg_trans_size = total_trans_size / total_bitmap_entries;
+  u32 avg_trans_size = total_uniq_trans_size / total_bitmap_entries;
   u32 perf_score = 100;
 
   /* Adjust score based on execution speed of this path, compared to the
@@ -5768,8 +5822,8 @@ static u32 calculate_score(struct queue_entry* q) {
   else if (q->bitmap_size * 2 < avg_bitmap_size) perf_score *= 0.5;
   else if (q->bitmap_size * 1.5 < avg_bitmap_size) perf_score *= 0.75;
 
-  if (q->uniq_trans * 0.25 > avg_trans_size) perf_score *= 2;
-  else if (q->uniq_trans * 0.5 > avg_trans_size) perf_score *= 1.75;
+  if (q->uniq_trans * 0.25 > avg_trans_size) perf_score *= 3;
+  else if (q->uniq_trans * 0.5 > avg_trans_size) perf_score *= 2;
   else if (q->uniq_trans * 0.75 > avg_trans_size) perf_score *= 1.5;
   else if (q->uniq_trans * 1.5 > avg_trans_size) perf_score *= 0.75;
   else if (q->uniq_trans * 2 > avg_trans_size) perf_score *= 0.5;
@@ -9393,10 +9447,10 @@ int main(int argc, char** argv) {
   setup_post();
   setup_shm();
 
-  //if (state_trans_fuzzing) 
-  //  top_rated = ck_alloc(TRANS_MAP_SIZE * sizeof(struct queue_entry *));
+  if (state_trans_fuzzing) 
+    trans_top_rated = ck_alloc(TRANS_MAP_SIZE * sizeof(struct queue_entry *));
   //else 
-    top_rated = ck_alloc(MAP_SIZE * sizeof(struct queue_entry *));
+  top_rated = ck_alloc(MAP_SIZE * sizeof(struct queue_entry *));
 
   init_count_class16();
 

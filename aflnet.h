@@ -1,6 +1,6 @@
 #ifndef __AFLNET_H
 #define __AFLNET_H 1
-#define TRANS_MAP_SIZE_POW2 10
+#define TRANS_MAP_SIZE_POW2 13
 #define TRANS_MAP_SIZE   (1 << TRANS_MAP_SIZE_POW2)
 
 
@@ -8,6 +8,8 @@
 #include "khash.h"
 #include <arpa/inet.h>
 #include <poll.h>
+
+KHASH_SET_INIT_INT(hs32)
 
 typedef struct {
   int start_byte;                 /* The start byte, negative if unknown. */
@@ -33,6 +35,8 @@ typedef struct {
   u32 selected_seed_index;    /* the recently selected seed index */
   void **seeds;               /* keeps all seeds reaching this state -- can be ca sted to struct queue_entry* */
   u32 seeds_count;            /* total number of seeds, it must be equal the size of the seeds array */
+  khash_t(hs32) *khms_states_trans;
+  u32 trans_num;
 } state_info_t;
 
 typedef struct {
@@ -56,8 +60,6 @@ enum {
 // Initialize klist linked list data structure
 #define message_t_freer(x)
 KLIST_INIT(lms, message_t *, message_t_freer)
-
-KHASH_SET_INIT_INT(hs32)
 
 // Initialize a hash table with int key and value is of type state_info_t
 KHASH_INIT(hms, khint32_t, state_info_t *, 1, kh_int_hash_func, kh_int_hash_equal)
