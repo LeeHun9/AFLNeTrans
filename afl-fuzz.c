@@ -632,6 +632,7 @@ u32 index_search(u32 *A, u32 n, u32 val) {
 /* Calculate state scores and select the next state */
 u32 update_scores_and_select_next_state(u8 mode) {
   u32 result = 0, i;
+  int threshold = 5;      // trans_num good range
 
   if (state_ids_count == 0) return 0;
 
@@ -650,7 +651,13 @@ u32 update_scores_and_select_next_state(u8 mode) {
       state = kh_val(khms_states, k);   // kh_val use to access the val via iterator
       switch(mode) {
         case FAVOR:
-          state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
+          if (state_trans_fuzzing) {
+            if (state->trans_num < threshold)
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
+            else 
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
+          } else 
+            state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
           break;
         //other cases are reserved
       }
@@ -712,6 +719,7 @@ struct queue_entry *choose_seed(u32 target_state_id, u8 mode)
   khint_t k;
   state_info_t *state;
   struct queue_entry *result = NULL;
+  struct queue_entry *tmp = NULL;
 
   k = kh_get(hms, khms_states, target_state_id);
   if (k != kh_end(khms_states)) {
@@ -740,6 +748,19 @@ struct queue_entry *choose_seed(u32 target_state_id, u8 mode)
               state->selected_seed_index = 0;
               passed_cycles++;
             } else state->selected_seed_index++;
+
+            // leehung: 75% skip the seed with high trans, because of overhead
+            if (state_trans_fuzzing) {
+              u32 index = 0;
+              u32 state_avg_trans = 0;
+              while(index < state->seeds_count) {
+                tmp = state->seeds[index++];
+                state_avg_trans += tmp->trans;
+              }
+              state_avg_trans /= state->seeds_count;
+
+              if (result->trans > state_avg_trans && UR(100) < 75) continue; 
+            }
 
             //Skip this seed with high probability if it is neither an initial seed nor a seed generated while the
             //current target_state_id was targeted
@@ -1187,11 +1208,13 @@ void record_transbit(unsigned int *state_sequence, unsigned int state_count) {
     pre_state_id = state_sequence[i] * 8;   // this should be optimized later
   }
 
+  int j;
+
   /* update state->trans info */
-  for (i = 0; i < state_count - 1; i++) {
+  for (j = 0; j < state_count - 1; j++) {
     
-    state_id = state_sequence[i];
-    next_state_id = state_sequence[i+1];
+    state_id = state_sequence[j];
+    next_state_id = state_sequence[j+1];
   
     khint_t k;
     state_info_t *cur_state;
@@ -5821,6 +5844,10 @@ static u32 calculate_score(struct queue_entry* q) {
   else if (q->bitmap_size * 3 < avg_bitmap_size) perf_score *= 0.25;
   else if (q->bitmap_size * 2 < avg_bitmap_size) perf_score *= 0.5;
   else if (q->bitmap_size * 1.5 < avg_bitmap_size) perf_score *= 0.75;
+
+  /*  Leehung: Adjust score based on uniq_trans. The working theory is that
+      more uniq_trans seed could explorate more state of the server. 
+      Multiplier from 0.25x to 3x. */
 
   if (q->uniq_trans * 0.25 > avg_trans_size) perf_score *= 3;
   else if (q->uniq_trans * 0.5 > avg_trans_size) perf_score *= 2;
