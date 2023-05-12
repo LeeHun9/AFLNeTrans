@@ -9396,15 +9396,6 @@ int main(int argc, char** argv) {
 
     }
 
-  /*leehung: 记录fuzzing状态文件，*/
-  stats_log_path = alloc_printf("%s/stats_record.csv", out_dir);
-  fp_stats = fopen(stats_log_path, "w");
-  if (fp_stats == NULL) {
-    FATAL("Failed to open stats_record.csv");
-  }
-  // write head to csv
-  fprintf(fp_stats, "run time,total execs,total paths,map density,unique crashes\n");
-
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
 
   //AFLNet - Check for required arguments
@@ -9486,6 +9477,15 @@ int main(int argc, char** argv) {
   setup_dirs_fds();
   read_testcases();
   load_auto();
+
+  /*leehung: 记录fuzzing状态文件，*/
+  stats_log_path = alloc_printf("%s/stats_record.csv", out_dir);
+  fp_stats = fopen(stats_log_path, "w");
+  if (fp_stats == NULL) {
+    FATAL("Failed to open stats_record.csv");
+  }
+  // write head to csv
+  fprintf(fp_stats, "run time,total execs,total paths,map density,unique crashes\n");
 
   pivot_inputs();
 
