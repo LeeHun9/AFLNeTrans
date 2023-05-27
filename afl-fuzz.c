@@ -414,6 +414,11 @@ u8 state_selection_algo = ROUND_ROBIN, seed_selection_algo = RANDOM_SELECTION;
 u8 false_negative_reduction = 0;
 u8 state_trans_fuzzing = 0;     // leehung
 
+/* leehung for state_choose */
+u32 epsilon = 10;
+
+
+
 /* Implemented state machine */
 Agraph_t  *ipsm;
 static FILE* ipsm_dot_file;
@@ -651,12 +656,12 @@ u32 update_scores_and_select_next_state(u8 mode) {
       state = kh_val(khms_states, k);   // kh_val use to access the val via iterator
       switch(mode) {
         case FAVOR:
-          if (state_trans_fuzzing) {
-            if (state->trans_num < threshold)
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
-            else 
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
-          } else 
+          //if (state_trans_fuzzing) {
+          //  if (state->trans_num < threshold)
+          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
+          //  else 
+          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
+          //} else 
             state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
           break;
         //other cases are reserved
@@ -678,6 +683,51 @@ u32 update_scores_and_select_next_state(u8 mode) {
   return result;
 }
 
+/* choose next state based on epsilon-greedy algorithm */
+u32 epsilon_greedy_algo_select_state() {
+  u32 result = -1;
+  u32 i;
+  u32 highest_score = -9999;
+  u32 threshold = 5;
+
+  if (state_ids_count == 0) return 0;
+
+  khint_t k;
+  state_info_t *state;
+
+  //Update the states' score
+  for(i = 0; i < state_ids_count; i++) {
+    u32 state_id = state_ids[i];
+    
+    k = kh_get(hms, khms_states, state_id);
+    if (k != kh_end(khms_states)) {
+      state = kh_val(khms_states, k);
+
+      if (state->trans_num <= threshold) {
+        u32 transs = threshold - state->trans_num;
+        state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * transs + 1)));
+      }
+      else {
+        u32 transs = state->trans_num - threshold;
+        state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * transs + 1)) * pow(2, log(state->paths_discovered + 1)));
+      }
+
+      if (highest_score < state->score) {
+        highest_score = state->score;
+        result = state_id;
+      }
+    }
+  }
+
+  if (result < 0) {
+    selected_state_index = UR(state_ids_count);
+    result = state_ids[selected_state_index];
+  }
+
+  return result;
+}
+
+
 /* Select a target state at which we do state-aware fuzzing */
 unsigned int choose_target_state(u8 mode) {
   u32 result = 0;
@@ -693,6 +743,19 @@ unsigned int choose_target_state(u8 mode) {
       if (selected_state_index == state_ids_count) selected_state_index = 0;
       break;
     case FAVOR:
+      /* leehung: choosing state base on epsilon-greedy algorithm */ 
+      if (state_trans_fuzzing) {
+        // exploration stage
+        if (UR(100) < epsilon) {
+          selected_state_index = UR(state_ids_count);
+          result = state_ids[selected_state_index];
+          break;
+        }
+        // exploitation
+        result = epsilon_greedy_algo_select_state();
+        break;
+      }
+
       /* Do ROUND_ROBIN for a few cycles to get enough statistical information*/
       if (state_cycles < 5) {
         result = state_ids[selected_state_index];
