@@ -656,12 +656,12 @@ u32 update_scores_and_select_next_state(u8 mode) {
       state = kh_val(khms_states, k);   // kh_val use to access the val via iterator
       switch(mode) {
         case FAVOR:
-          //if (state_trans_fuzzing) {
-          //  if (state->trans_num < threshold)
-          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
-          //  else 
-          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
-          //} else 
+          if (state_trans_fuzzing) {
+            if (state->trans_num < threshold)
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
+            else 
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
+          } else 
             state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
           break;
         //other cases are reserved
@@ -685,7 +685,7 @@ u32 update_scores_and_select_next_state(u8 mode) {
 
 /* choose next state based on epsilon-greedy algorithm */
 u32 epsilon_greedy_algo_select_state() {
-  u32 result = -1;
+  u32 result;
   u32 i;
   u32 highest_score = -9999;
   u32 threshold = 5;
@@ -704,7 +704,7 @@ u32 epsilon_greedy_algo_select_state() {
       state = kh_val(khms_states, k);
 
       if (state->trans_num <= threshold) {
-        u32 transs = threshold - state->trans_num;
+        u32 transs = threshold - state->trans_num + 2;
         state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * transs + 1)));
       }
       else {
@@ -752,7 +752,8 @@ unsigned int choose_target_state(u8 mode) {
           break;
         }
         // exploitation
-        result = epsilon_greedy_algo_select_state();
+        //result = epsilon_greedy_algo_select_state();
+        result = update_scores_and_select_next_state(FAVOR);
         break;
       }
 
@@ -816,13 +817,20 @@ struct queue_entry *choose_seed(u32 target_state_id, u8 mode)
             if (state_trans_fuzzing) {
               u32 index = 0;
               u32 state_avg_trans = 0;
+              u32 state_avg_uniq_trans = 0;
               while(index < state->seeds_count) {
                 tmp = state->seeds[index++];
                 state_avg_trans += tmp->trans;
+                state_avg_uniq_trans += tmp->uniq_trans;
               }
               state_avg_trans /= state->seeds_count;
+              state_avg_uniq_trans /= state->seeds_count;
 
-              if (result->trans > state_avg_trans && UR(100) < 75) continue; 
+              if (result->trans > state_avg_trans && result->uniq_trans < state_avg_uniq_trans && UR(100) < 95) continue; 
+
+              else if (result->trans < state_avg_trans && result->uniq_trans < state_avg_uniq_trans && UR(100) < 90) continue; 
+
+              else if (result->trans < state_avg_trans && result->uniq_trans > state_avg_uniq_trans) break; 
             }
 
             //Skip this seed with high probability if it is neither an initial seed nor a seed generated while the
@@ -5558,7 +5566,7 @@ static void show_stats(void) {
   u64 _delta = cur_ms - start_time;
   s32 _second = (_delta / 1000) % 60;
   if (_second % period == 0 && pre_time != _second) {
-    fprintf(fp_stats, "%llu,%-21s,%-5s,%0.02f%%,%s\n", cur_ms - start_time, DI(total_execs), DI(queued_paths), t_byte_ratio,DI(unique_crashes));
+    fprintf(fp_stats, "%llu,%-21s,%-5s,%0.02f%%,%s,%s\n", cur_ms - start_time, DI(total_execs), DI(queued_paths), t_byte_ratio,DI(unique_crashes),DI(unique_trans_edge));
     pre_time = _second;
     rec = 1;
   }
@@ -9548,7 +9556,7 @@ int main(int argc, char** argv) {
     FATAL("Failed to open stats_record.csv");
   }
   // write head to csv
-  fprintf(fp_stats, "run time,total execs,total paths,map density,unique crashes\n");
+  fprintf(fp_stats, "run time,total execs,total paths,map density,unique crashes,unique trans edge\n");
 
   pivot_inputs();
 
