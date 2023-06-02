@@ -415,7 +415,7 @@ u8 false_negative_reduction = 0;
 u8 state_trans_fuzzing = 0;     // leehung
 
 /* leehung for state_choose */
-u32 epsilon = 10;
+u32 epsilon = 5;
 
 
 
@@ -658,9 +658,9 @@ u32 update_scores_and_select_next_state(u8 mode) {
         case FAVOR:
           if (state_trans_fuzzing) {
             if (state->trans_num < threshold)
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered * (threshold - state->trans_num)+ 1)));
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * (threshold - state->trans_num + 1));
             else 
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times * state->trans_num + 1)) * pow(2, log(state->paths_discovered + 1)));
+              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * pow(2, log(state->trans_num + 1)));
           } else 
             state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
           break;
