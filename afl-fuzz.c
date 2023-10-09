@@ -656,12 +656,13 @@ u32 update_scores_and_select_next_state(u8 mode) {
       state = kh_val(khms_states, k);   // kh_val use to access the val via iterator
       switch(mode) {
         case FAVOR:
-          if (state_trans_fuzzing) {
-            if (state->trans_num < threshold)
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * (threshold - state->trans_num + 1));
-            else 
-              state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * pow(2, log(state->trans_num + 1)));
-          } else 
+          // shutdown for distill expriment
+          //if (state_trans_fuzzing) {
+          //  if (state->trans_num < threshold)
+          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * (threshold - state->trans_num + 1));
+          //  else 
+          //    state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)) * pow(2, log(state->trans_num + 1)));
+          //} else 
             state->score = ceil(1000 * pow(2, -log10(log10(state->fuzzs + 1) * state->selected_times + 1)) * pow(2, log(state->paths_discovered + 1)));
           break;
         //other cases are reserved
@@ -744,18 +745,19 @@ unsigned int choose_target_state(u8 mode) {
       break;
     case FAVOR:
       /* leehung: choosing state base on epsilon-greedy algorithm */ 
-      if (state_trans_fuzzing) {
-        // exploration stage
-        if (UR(100) < epsilon) {
-          selected_state_index = UR(state_ids_count);
-          result = state_ids[selected_state_index];
-          break;
-        }
-        // exploitation
-        //result = epsilon_greedy_algo_select_state();
-        result = update_scores_and_select_next_state(FAVOR);
-        break;
-      }
+      // shutdown for distill expriment
+      //if (state_trans_fuzzing) {
+      //  // exploration stage
+      //  if (UR(100) < epsilon) {
+      //    selected_state_index = UR(state_ids_count);
+      //    result = state_ids[selected_state_index];
+      //    break;
+      //  }
+      //  // exploitation
+      //  //result = epsilon_greedy_algo_select_state();
+      //  result = update_scores_and_select_next_state(FAVOR);
+      //  break;
+      //}
 
       /* Do ROUND_ROBIN for a few cycles to get enough statistical information*/
       if (state_cycles < 5) {
