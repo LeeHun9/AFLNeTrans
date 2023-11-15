@@ -1277,7 +1277,7 @@ void record_transbit(unsigned int *state_sequence, unsigned int state_count) {
   /* update trans_bits */
   for (i = 1; i < state_count; i++) {
   
-    trans_bits[pre_state_id + state_sequence[i]]++; // current state is state_sequence[i]
+    trans_bits[(pre_state_id + state_sequence[i])%TRANS_MAP_SIZE]++; // current state is state_sequence[i]
     pre_state_id = state_sequence[i] * 8;   // this should be optimized later
   }
 
