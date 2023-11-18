@@ -906,7 +906,7 @@ void update_state_aware_variables(struct queue_entry *q, u8 dry_run)
     ck_free(temp_str);
     ck_free(fname);
 
-    u8 *responses_fname = alloc_printf("%s/reponses-ipsm/id:%s", out_dir, basename(q->fname));
+    u8 *responses_fname = alloc_printf("%s/responses-ipsm/id:%s", out_dir, basename(q->fname));
     save_responses_to_file(response_buf, response_buf_size, response_bytes, responses_fname, messages_sent);
 
     ck_free(responses_fname);
@@ -5055,6 +5055,18 @@ static void maybe_delete_out_dir(void) {
   if (delete_files(fn, "")) goto dir_cleanup_failed;
   ck_free(fn);
 
+  /* Delete the old responses-ipsm folder */
+  fn = alloc_printf("%s/responses-ipsm", out_dir);
+  if (delete_files(fn, ""))
+    goto dir_cleanup_failed;
+  ck_free(fn);
+
+  /* Delete the old stall-interactions folder */
+  fn = alloc_printf("%s/stall-interactions", out_dir);
+  if (delete_files(fn, ""))
+    goto dir_cleanup_failed;
+  ck_free(fn);
+
   /* And now, for some finishing touches. */
 
   fn = alloc_printf("%s/.cur_input", out_dir);
@@ -8738,6 +8750,20 @@ EXP_ST void setup_dirs_fds(void) {
 
   tmp = alloc_printf("%s/regions", out_dir);
   if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+  ck_free(tmp);
+
+  /* All output from the LLM's help for unblocking the state stall -- for debugging purposes.  */
+  
+  tmp = alloc_printf("%s/stall-interactions", out_dir);
+  if (mkdir(tmp, 0700))
+    PFATAL("Unable to create '%s'", tmp);
+  ck_free(tmp);
+
+  /* All recorded responses over the implemented state machine. */
+
+  tmp = alloc_printf("%s/responses-ipsm", out_dir);
+  if (mkdir(tmp, 0700))
+    PFATAL("Unable to create '%s'", tmp);
   ck_free(tmp);
 
   /* All recorded new paths exercising the implemented state machine. */
