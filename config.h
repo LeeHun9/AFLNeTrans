@@ -59,6 +59,11 @@
 #define WORD_SIZE_64 1
 #endif
 
+/* The threshold to select the mutation based on grammars */
+#define UNINTERESTING_THRESHOLD  512
+#define CHATTING_THRESHOLD  64
+#define VALID_THRESHOLD 32
+
 /* Default memory limit for child process (MB): */
 
 #ifndef WORD_SIZE_64

@@ -1604,6 +1604,46 @@ u32 save_kl_messages_to_file(klist_t(lms) *kl_messages, u8 *fname, u8 replay_ena
   return len;
 }
 
+void save_responses_to_file(char *buffer, u32 buffer_len, u32 *response_bytes, u8 *fname, u32 max_count)
+{
+  FILE *fresponses = fopen(fname, "wb");
+
+  int prev = 0;
+  fwrite(&max_count, 1, sizeof(u32), fresponses);
+  for (int i = 0; i < max_count; i++)
+  {
+    int diff = response_bytes[i] - prev;
+    fwrite(&diff, sizeof(u32), 1, fresponses);
+    fwrite(buffer + prev, sizeof(char), diff, fresponses);
+    prev = response_bytes[i];
+  }
+
+  fclose(fresponses);
+}
+
+char **get_responses_from_file(u8 *fname, u32 **response_bytes, u32 *max_count, u32 *buffer_len)
+{
+  FILE *fresponses = fopen(fname, "rb");
+  if (fresponses == NULL)
+    return NULL;
+
+  fread(max_count, sizeof(u32), 1, fresponses);
+  char **buffer = ck_alloc(sizeof(char *) * max_count[0]);
+  response_bytes[0] = ck_alloc(sizeof(u32) * max_count[0]);
+  for (int i = 0; i < *max_count; i++)
+  {
+    int len = 0;
+    fread(&len, sizeof(u32), 1, fresponses);
+    buffer_len[0] = buffer_len[0] + len;
+    (*response_bytes)[i] = buffer_len[0];
+    buffer[i] = ck_alloc(sizeof(char) * len);
+    fread(buffer[i], sizeof(char), len, fresponses);
+  }
+
+  fclose(fresponses);
+  return buffer;
+}
+
 region_t* convert_kl_messages_to_regions(klist_t(lms) *kl_messages, u32* region_count_ref, u32 max_count)
 {
   region_t *regions = NULL;

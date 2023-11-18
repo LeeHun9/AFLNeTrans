@@ -72,6 +72,8 @@
 #include <graphviz/gvc.h>
 #include <math.h>
 
+#include "chat.h"
+
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
 #endif /* __APPLE__ || __FreeBSD__ || __OpenBSD__ */
@@ -417,7 +419,12 @@ u8 state_trans_fuzzing = 0;     // leehung
 /* leehung for state_choose */
 u32 epsilon = 5;
 
-
+/* leehung for LLM generate package*/
+char* protocol_name;
+u32 chat_times = 0;
+u32 valid_chats = 0;
+u32 useful_chat_times = 0;
+u32 uninteresting_times = 0;
 
 /* Implemented state machine */
 Agraph_t  *ipsm;
@@ -898,6 +905,11 @@ void update_state_aware_variables(struct queue_entry *q, u8 dry_run)
     save_kl_messages_to_file(kl_messages, fname, 1, messages_sent);
     ck_free(temp_str);
     ck_free(fname);
+
+    u8 *responses_fname = alloc_printf("%s/reponses-ipsm/id:%s", out_dir, basename(q->fname));
+    save_responses_to_file(response_buf, response_buf_size, response_bytes, responses_fname, messages_sent);
+
+    ck_free(responses_fname);
 
     //Update the IPSM graph
     if (state_count > 1) {
@@ -5829,8 +5841,14 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   }
 
   /* This handles FAULT_ERROR for us: */
+  u8 interesting = save_if_interesting(argv, out_buf, len, fault);
+  queued_discovered += interesting;
 
-  queued_discovered += save_if_interesting(argv, out_buf, len, fault);
+  if (interesting) {
+    uninteresting_times = 0;
+  }
+  
+  else uninteresting_times++;
 
   if (!(stage_cur % stats_update_freq) || stage_cur + 1 == stage_max)
     show_stats();
@@ -6300,6 +6318,166 @@ AFLNET_REGIONS_SELECTION:;
       M2_next = it;     // M3_start == M2_next
     }
     count++;
+  }
+
+  // uninteresitng_times 调整为只在 common_fuzz_stuff 中更新
+  if (uninteresting_times >= UNINTERESTING_THRESHOLD && chat_times <= CHATTING_THRESHOLD && valid_chats <= VALID_THRESHOLD) {
+    
+    u32 *response_bytes_temp = NULL;
+    u32 response_buffer_len = 0;
+    u32 response_count = 0;
+
+    char* response_fname = alloc_printf("%s/responses-ipsm/id:%s", out_dir, basename(queue_cur->fname));
+    char** responses_temp = get_responses_from_file(response_fname, &response_bytes_temp, &response_count, &response_buffer_len);
+
+    if (responses_temp != NULL) {
+      ck_free(response_fname);
+      char* history = NULL;
+      u32 history_len = 0;
+      char* examples = NULL;
+      int example_len = 0;
+      kliter_t(lms)* it = kl_begin(kl_messages);
+      int i = 0, prev_len = 0;
+      int empty = 1;
+
+      // construct example and history for prompt
+      for(; i < response_count && it != M2_prev; i++, it = kl_next(it)) {
+
+        empty = 0;
+        json_object* request_lms = json_object_new_string_len(kl_val(it)->mdata, kl_val(it)->msize);
+        char* request = strdup(json_object_to_json_string(request_lms));
+        json_object_put(request_lms);
+        u32 request_len = strlen(request) - 2;  // 去除两个冒号
+        request++;
+
+        for (int i = 0; i < request_len; ++i) {
+          if (!isprint(request[i]) || request[i] < 0 || request[i] >= 127) request[i] = ' ';
+        }
+
+        json_object* response_lms = json_object_new_string_len(responses_temp[i], response_bytes_temp[i] - prev_len);
+        char* response = strdup(json_object_to_json_string(response_lms));
+        json_object_put(response_lms);
+        prev_len = response_bytes_temp[i];
+        int response_len = strlen(response) - 2;
+        response++; 
+
+        for (int i = 0; i < response_len; ++i) {
+          if (!isprint(response[i]) || response[i] < 0 || response[i] >= 127) response[i] = ' ';
+        }
+
+        // construct example prompt
+        if (i == 0) {
+          example_len = asprintf(&examples, "Request-1:\\n%.*s\\nRequest-2:\\n%.*s\\n", request_len, request, request_len, request);
+        }
+
+        // construct history prompt
+        history = ck_realloc(history, history_len + request_len);
+        memcpy(history + history_len, request, request_len);
+        history_len += request_len;
+
+        history = ck_realloc(history, history_len + response_len);
+        memcpy(history + history_len, response, response_len);
+        history_len += response_len;
+
+        free(request-1);
+        free(response-1);
+
+      }
+
+      if (!empty) {
+        history = ck_realloc(history, history_len + 1);
+        history[history_len] = '\0';
+
+        if (history_len > HISTORY_PROMPT_LENGTH) {
+          int offset = history_len - HISTORY_PROMPT_LENGTH;
+          if (history[offset-1] == '\\') ++offset;
+          char* history_temp = ck_strdup(history + offset);
+          ck_free(history);
+          history = history_temp;
+          history_len = history_len - offset;
+        }
+
+        if (example_len > EXAMPLES_PROMPT_LENGTH) {
+          int offset = example_len - EXAMPLES_PROMPT_LENGTH;
+          if (examples[offset] == '\\') ++offset;
+          char* example_temp = ck_strdup(examples+offset);
+          ck_free(examples);
+          examples = example_temp;
+          example_len = example_len - offset;
+        }
+
+        char* stall_prompt = construct_prompt_stall(protocol_name, examples, history);
+        char* stall_response = chat_with_llm(stall_prompt, "turbo", 2, 1.5);
+        chat_times++;
+
+        //if (chat_times % 50)
+
+        {
+          char* stall_prompt_path = alloc_printf("%s/stall_interactions/prompt-%d", out_dir, chat_times);
+          int stall_prompt_fd = open(stall_prompt_path, O_WRONLY | O_CREAT, 0600);
+
+          ck_write(stall_prompt_fd, stall_prompt, strlen(stall_prompt), stall_prompt_path);
+
+          close(stall_prompt_fd);
+          ck_free(stall_prompt_path);
+        }
+
+        if (stall_response ==  NULL) 
+          goto free_stall;
+
+        {
+          char* stall_response_path = alloc_printf("%s/stall_interactions/response-%d", out_dir, chat_times);
+          int stall_response_fd = open(stall_response_path, O_WRONLY | O_CREAT, 0600);
+
+          ck_write(stall_response_fd, stall_response, strlen(stall_response), stall_response_path);
+
+          close(stall_response_fd);
+          ck_free(stall_response_path);
+        }
+
+        char* stall_message = extract_stalled_message(stall_response, strlen(stall_response));
+
+        if (stall_message == NULL) 
+          goto free_stall;
+
+        stall_message = format_request_message(stall_message);
+
+        if (stall_message != NULL) {
+
+          if (common_fuzz_stuff(argv, stall_message, strlen(stall_message))) {
+
+            splicing_with = -1;
+
+            /* Update pending_not_fuzzed count if we made it through the calibration
+               cycle and have not seen this entry before. */
+
+            if (!stop_soon && !queue_cur->cal_failed && !queue_cur->was_fuzzed) {
+              queue_cur->was_fuzzed = 1;
+              was_fuzzed_map[get_state_index(target_state_id)][queue_cur->index] = 1;
+              pending_not_fuzzed--;
+              if (queue_cur->favored) pending_favored--;
+            }
+
+            ck_free(stall_message);
+
+            delete_kl_messages(kl_messages);
+
+            return ret_val;
+          }
+          if (uninteresting_times == 0) valid_chats++;
+          ck_free(stall_message);
+        }
+
+        ck_free(stall_response);
+free_stall:
+        ck_free(stall_prompt);
+        ck_free(history);
+        ck_free(examples);        
+      }
+      else {
+        // empty response for current request, Do nothing.
+      }
+    }
   }
 
   /* Construct the buffer to be mutated and update out_buf */
@@ -9410,6 +9588,8 @@ int main(int argc, char** argv) {
         }
 
         protocol_selected = 1;
+        protocol_name = ck_strdup(optarg);
+
 
         break;
 
