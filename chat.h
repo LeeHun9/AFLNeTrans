@@ -6,7 +6,7 @@
 #define PCRE2_CODE_UNIT_WIDTH 8 // Characters are 8 bits
 #include <pcre2.h>
 
-#define OPENAI_API_KEY "1"
+#define OPENAI_API_KEY "1111"
 
 #define MAX_TOKENS 2048
 
