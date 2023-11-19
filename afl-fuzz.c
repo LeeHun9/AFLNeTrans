@@ -6402,7 +6402,7 @@ AFLNET_REGIONS_SELECTION:;
 
         if (history_len > HISTORY_PROMPT_LENGTH) {
           int offset = history_len - HISTORY_PROMPT_LENGTH;
-          if (history[offset-1] == '\\') ++offset;
+          if (history[offset - 1] == '\\') ++offset;
           char* history_temp = ck_strdup(history + offset);
           ck_free(history);
           history = history_temp;
