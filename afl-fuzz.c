@@ -6425,7 +6425,7 @@ AFLNET_REGIONS_SELECTION:;
         //if (chat_times % 50)
 
         {
-          char* stall_prompt_path = alloc_printf("%s/stall_interactions/prompt-%d", out_dir, chat_times);
+          char* stall_prompt_path = alloc_printf("%s/stall-interactions/prompt-%d", out_dir, chat_times);
           int stall_prompt_fd = open(stall_prompt_path, O_WRONLY | O_CREAT, 0600);
 
           ck_write(stall_prompt_fd, stall_prompt, strlen(stall_prompt), stall_prompt_path);
@@ -6438,7 +6438,7 @@ AFLNET_REGIONS_SELECTION:;
           goto free_stall;
 
         {
-          char* stall_response_path = alloc_printf("%s/stall_interactions/response-%d", out_dir, chat_times);
+          char* stall_response_path = alloc_printf("%s/stall-interactions/response-%d", out_dir, chat_times);
           int stall_response_fd = open(stall_response_path, O_WRONLY | O_CREAT, 0600);
 
           ck_write(stall_response_fd, stall_response, strlen(stall_response), stall_response_path);
