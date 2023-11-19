@@ -6411,8 +6411,8 @@ AFLNET_REGIONS_SELECTION:;
 
         if (example_len > EXAMPLES_PROMPT_LENGTH) {
           int offset = example_len - EXAMPLES_PROMPT_LENGTH;
-          if (examples[offset] == '\\') ++offset;
-          char* example_temp = ck_strdup(examples+offset);
+          if (examples[offset - 1] == '\\') ++offset;
+          char* example_temp = ck_strdup(examples + offset);
           ck_free(examples);
           examples = example_temp;
           example_len = example_len - offset;
