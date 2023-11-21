@@ -421,10 +421,10 @@ u32 epsilon = 5;
 
 /* leehung for LLM generate package*/
 char* protocol_name;
-u32 chat_times = 0;
-u32 valid_chats = 0;
-u32 useful_chat_times = 0;
-u32 uninteresting_times = 0;
+u32 chat_times = 0;                 // total times of chat 
+u32 valid_chats = 0;                // the times of valid chat, which cause new code coverage or new state transition
+u32 uninteresting_times = 0;        // only set 0 when chat cause a new code coverage or new state transition
+u32 uninteresting_times_reset = 0;  // always set 0 when chat with llm
 
 /* Implemented state machine */
 Agraph_t  *ipsm;
@@ -5858,9 +5858,13 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   if (interesting) {
     uninteresting_times = 0;
+    uninteresting_times_reset = 0;
   }
   
-  else uninteresting_times++;
+  else {
+    uninteresting_times++;
+    uninteresting_times_reset++;
+  }
 
   if (!(stage_cur % stats_update_freq) || stage_cur + 1 == stage_max)
     show_stats();
@@ -6333,8 +6337,9 @@ AFLNET_REGIONS_SELECTION:;
   }
 
   // uninteresitng_times 调整为只在 common_fuzz_stuff 中更新
-  if (uninteresting_times >= UNINTERESTING_THRESHOLD && chat_times <= CHATTING_THRESHOLD && valid_chats <= VALID_THRESHOLD) {
+  if (uninteresting_times_reset >= UNINTERESTING_THRESHOLD && chat_times <= CHATTING_THRESHOLD && valid_chats <= VALID_THRESHOLD) {
     
+    uninteresting_times_reset = 0;
     u32 *response_bytes_temp = NULL;
     u32 response_buffer_len = 0;
     u32 response_count = 0;
@@ -6413,7 +6418,7 @@ AFLNET_REGIONS_SELECTION:;
           int offset = example_len - EXAMPLES_PROMPT_LENGTH;
           if (examples[offset - 1] == '\\') ++offset;
           char* example_temp = ck_strdup(examples + offset);
-          ck_free(examples);
+          free(examples);
           examples = example_temp;
           example_len = example_len - offset;
         }
@@ -6480,11 +6485,11 @@ AFLNET_REGIONS_SELECTION:;
           ck_free(stall_message);
         }
 
-        ck_free(stall_response);
+        free(stall_response);
 free_stall:
-        ck_free(stall_prompt);
+        free(stall_prompt);
         ck_free(history);
-        ck_free(examples);        
+        free(examples);        
       }
       else {
         // empty response for current request, Do nothing.
